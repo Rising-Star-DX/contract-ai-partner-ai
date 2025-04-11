@@ -9,6 +9,12 @@ class ClauseData:
   position: List[List[float]] = field(default_factory=list)
 
 @dataclass
+class SearchResult:
+  proof_text: str
+  incorrect_text: str
+  corrected_text: str
+
+@dataclass
 class RagResult:
   incorrect_text: str = ''
   corrected_text: Optional[str] = None

@@ -27,27 +27,15 @@ s3 = s3_connection()
 
 
 def s3_get_object(url: str) -> bytes:
-  if not url.startswith("https://"):
-    raise ValueError("Invalid https path")
-
-  parts = url.replace("https://", "").split("/", 1)
-  bucket_name, object_key = parts[0], parts[1]
-
   try:
-    full_url = f"https://{bucket_name}/{object_key}"
-
-    # 공개된 객체는 generate_pre_signed_url 없이 https:// URL을 그대로 사용하여 접근
-    response = requests.get(full_url)
+    response = requests.get(url, timeout=10)
 
     if response.status_code != 200:
-      print(
-          f"Failed to fetch the file, Status code: {response.status_code}, Response: {response.text}")  # 디버깅용 출력
       raise CommonException(ErrorCode.FILE_LOAD_FAILED)
 
-    return response.content   # 파일 데이터 반환
+    return response.content
 
-  except requests.exceptions.RequestException as e:
-    print(f"Error occurred while fetching the file: {e}")
+  except Exception:
     raise CommonException(ErrorCode.S3_CLIENT_ERROR)
 
 

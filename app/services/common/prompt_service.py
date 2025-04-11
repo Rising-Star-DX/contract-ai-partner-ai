@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import List, Any
+from typing import List, Any, Optional
 
 import httpx
 from openai import AsyncOpenAI
@@ -83,9 +83,9 @@ class PromptService:
 
     return parsed_response
 
-
   async def correct_contract(self, clause_content: str, proof_text: List[str],
-      incorrect_text: List[str], corrected_text: List[str]):
+      incorrect_text: List[str], corrected_text: List[str]) -> Optional[
+    dict[str, Any]]:
 
     clause_content = clause_content.replace("\n", " ")
     clause_content = clause_content.replace("+", "")
@@ -175,4 +175,3 @@ class PromptService:
       return None
 
     return parsed_response
-

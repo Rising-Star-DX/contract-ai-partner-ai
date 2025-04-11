@@ -32,6 +32,7 @@ class ErrorCode(Enum):
   QDRANT_NOT_STARTED = (HTTPStatus.NOT_FOUND, "C015", "Qdrant 실행 여부 확인 필요")
   UNSUPPORTED_FILE_TYPE = (HTTPStatus.BAD_REQUEST, "C016", "지원되지 않는 타입의 파일")
   NO_TEXTS_EXTRACTED = (HTTPStatus.INTERNAL_SERVER_ERROR, "C017", "해당 파일에서 추출된 텍스트 없음")
+  PDF_LOAD_FAILED = (HTTPStatus.INTERNAL_SERVER_ERROR, "C018", "PDF 로딩 실패")
 
   # agreement 관련 에러
   REVIEW_FAIL = (HTTPStatus.INTERNAL_SERVER_ERROR, "A001", "AI 검토 보고서 생성 작업 중 에러 발생")

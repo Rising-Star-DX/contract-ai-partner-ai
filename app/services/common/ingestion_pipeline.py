@@ -14,7 +14,7 @@ from app.schemas.document_request import DocumentRequest
 from app.services.common.chunking_service import \
   chunk_by_article_and_clause_with_page, semantic_chunk
 from app.services.common.pdf_service import convert_to_bytes_io, \
-  extract_documents_from_pdf_io, byte_data
+  parse_pdf_to_documents, extract_fitz_document_from_pdf_io
 from app.services.common.s3_service import s3_get_object, \
   generate_pre_signed_url
 
@@ -23,7 +23,7 @@ def preprocess_data(document_request: DocumentRequest) -> Tuple[
   List[Document], fitz.Document]:
 
   documents: List[Document] = []
-  byte_type_pdf = None
+  fitz_document = None
 
   file_type = extract_file_type(document_request.url)
   if file_type in (FileType.PNG, FileType.JPG, FileType.JPEG):
@@ -31,14 +31,14 @@ def preprocess_data(document_request: DocumentRequest) -> Tuple[
   elif file_type == FileType.PDF:
     s3_stream = s3_get_object(document_request.url)
     pdf_bytes_io = convert_to_bytes_io(s3_stream)
-    byte_type_pdf = byte_data(pdf_bytes_io)
-    documents = extract_documents_from_pdf_io(pdf_bytes_io)
+    fitz_document = extract_fitz_document_from_pdf_io(pdf_bytes_io)
+    documents = parse_pdf_to_documents(fitz_document)
   else:
     raise CommonException(ErrorCode.UNSUPPORTED_FILE_TYPE)
 
   if len(documents) == 0:
     raise CommonException(ErrorCode.NO_TEXTS_EXTRACTED)
-  return documents, byte_type_pdf
+  return documents, fitz_document
 
 
 def extract_file_type(url: str) -> FileType:

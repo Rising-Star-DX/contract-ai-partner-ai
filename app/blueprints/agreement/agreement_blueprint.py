@@ -32,14 +32,14 @@ def process_agreements_pdf_from_s3():
   except ValidationError:
     raise CommonException(ErrorCode.FIELD_MISSING)
 
-  documents, byte_type_pdf = preprocess_data(document_request)
+  documents, fitz_document = preprocess_data(document_request)
   document_chunks = chunk_agreement_documents(documents)
   combined_chunks = combine_chunks_by_clause_number(document_chunks)
 
   start_time = time.time()
   chunks = run_async(
       vectorize_and_calculate_similarity(combined_chunks, document_request,
-                                         byte_type_pdf))
+                                         fitz_document))
   end_time = time.time()
   logging.info(
       f"Time vectorize and prompt texts: {end_time - start_time:.4f} seconds")
