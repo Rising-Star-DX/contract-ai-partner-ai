@@ -13,6 +13,10 @@ class SearchResult:
   proof_text: str
   incorrect_text: str
   corrected_text: str
+  term: str
+  meaning_difference: str
+  definition: str
+  keywords: str
 
 @dataclass
 class RagResult:

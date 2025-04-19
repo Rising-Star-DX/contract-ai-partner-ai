@@ -2,8 +2,8 @@ import datetime
 import os
 import logging
 import sys
+from zoneinfo import ZoneInfo
 
-import pytz
 from flask import Flask
 from dotenv import load_dotenv
 
@@ -15,9 +15,9 @@ from app.blueprints.common import healthcheck_blueprint
 load_dotenv()
 
 class KSTFormatter(logging.Formatter):
-  def formatTime(self, record, datefmt = None):
-    dt = datetime.datetime.fromtimestamp(record.created, pytz.timezone("Asia/Seoul"))
-    return dt.strftime(datefmt or "%Y-%m-%d %H:%M:%S")
+  def formatTime(self, record, date_format=None) -> str:
+    dt = datetime.datetime.fromtimestamp(record.created, tz=ZoneInfo("Asia/Seoul"))
+    return dt.strftime(date_format)
 
 def configure_logging():
   handler = logging.StreamHandler(sys.stdout)

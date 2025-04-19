@@ -23,19 +23,19 @@ jobs:
         AZURE_PROMPT_OPENAI_ENDPOINT: ${{ secrets.AZURE_PROMPT_OPENAI_ENDPOINT }}
 
 
-    # ✅ Flask health check (실패할 수 있음)
     - name: Check Flask health
       run: |
-        echo "Waiting for Flask to become ready..."
+        echo "🔄 Waiting for Flask to become ready..."
         for i in {1..10}; do
           if curl --fail http://localhost:5000/health-check; then
-            echo "Flask is healthy"
+            echo "✅ Flask is healthy"
             exit 0
           fi
-          echo "Flask not ready yet... retrying in 3s"
+          echo "⏳ Flask not ready yet... retrying in 3s"
           sleep 3
         done
-        echo "❌ Flask health check failed after 10 attempts"
+        echo "::error ::❌ Flask health check failed after 10 attempts"
+        docker compose logs flask-app
         exit 1
 
 

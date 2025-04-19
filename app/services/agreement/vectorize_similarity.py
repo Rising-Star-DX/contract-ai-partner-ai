@@ -21,7 +21,7 @@ from app.common.exception.error_code import ErrorCode
 from app.containers.service_container import embedding_service, prompt_service
 from app.schemas.analysis_response import RagResult, SearchResult
 from app.schemas.document_request import DocumentRequest
-from app.services.standard.vector_store import ensure_qdrant_collection
+from app.services.common.qdrant_utils import ensure_qdrant_collection
 
 SEARCH_COUNT = 3
 VIOLATION_THRESHOLD = 0.75
@@ -78,11 +78,10 @@ async def process_clause(qd_client: AsyncQdrantClient,
 
   search_results = await search_qdrant(semaphore, collection_name, embedding,
                                        qd_client)
-  clause_results = await gather_search_results(search_results)
-  await parse_incorrect_text(rag_result)
+  parse_incorrect_text(rag_result)
   corrected_result = await generate_clause_correction(prompt_client,
                                                       rag_result.incorrect_text,
-                                                      clause_results)
+                                                      search_results)
   if not corrected_result:
     return ChunkProcessResult(status=ChunkProcessStatus.FAILURE)
 
@@ -100,7 +99,7 @@ async def process_clause(qd_client: AsyncQdrantClient,
     await find_text_positions(rag_result.incorrect_text, byte_type_pdf)
   positions = await extract_positions_by_page(all_positions)
 
-  await set_result_data(corrected_result, rag_result, positions)
+  set_result_data(corrected_result, rag_result, positions)
   if any(not clause.position for clause in rag_result.clause_data):
     logging.warning(f"원문 일치 position값 불러오지 못함")
     return ChunkProcessResult(status=ChunkProcessStatus.SUCCESS)
@@ -109,7 +108,7 @@ async def process_clause(qd_client: AsyncQdrantClient,
                             result=rag_result)
 
 
-async def parse_incorrect_text(rag_result: RagResult) -> None:
+def parse_incorrect_text(rag_result: RagResult) -> None:
   try:
     clause_parts = rag_result.incorrect_text.split(
         ARTICLE_CLAUSE_SEPARATOR, 1)
@@ -121,7 +120,17 @@ async def parse_incorrect_text(rag_result: RagResult) -> None:
 
 async def search_qdrant(semaphore: Semaphore, collection_name: str,
     embedding: List[float],
-    qd_client: AsyncQdrantClient) -> QueryResponse:
+    qd_client: AsyncQdrantClient) -> List[SearchResult]:
+  search_results = await search_collection(qd_client, semaphore,
+                                           collection_name, embedding)
+  legal_term_results = await search_collection(qd_client, semaphore,
+                                               "법률용어", embedding)
+  return gather_search_results(search_results, legal_term_results)
+
+
+async def search_collection(qd_client: AsyncQdrantClient,
+    semaphore: Semaphore, collection_name: str,
+    embedding: List[float]) -> QueryResponse:
   for attempt in range(1, MAX_RETRIES + 1):
     try:
       async with semaphore:
@@ -130,14 +139,14 @@ async def search_qdrant(semaphore: Semaphore, collection_name: str,
             query=embedding,
             search_params=models.SearchParams(hnsw_ef=128, exact=False),
             limit=SEARCH_COUNT,
-            with_payload=["incorrect_text", "corrected_text", "proof_text"]
+            with_payload=True
         )
       break
     except Exception as e:
       if attempt == MAX_RETRIES:
         raise CommonException(ErrorCode.QDRANT_SEARCH_FAILED)
       logging.warning(
-          f"query_points: Qdrant Search 재요청 발생 {attempt}/{MAX_RETRIES} {e}")
+          f"[search_collection]: Qdrant Search 재요청 발생 {attempt}/{MAX_RETRIES} {e}")
       await asyncio.sleep(1)
 
   if search_results is None or not search_results.points:
@@ -146,44 +155,49 @@ async def search_qdrant(semaphore: Semaphore, collection_name: str,
   return search_results
 
 
-async def gather_search_results(search_results: QueryResponse) -> List[
+def gather_search_results(search_results: QueryResponse,
+    legal_term_results: QueryResponse) -> List[
   SearchResult]:
-  clause_results = []
-  for match in search_results.points:
-    payload_data = match.payload or {}
+  merged_results: List[SearchResult] = []
 
-    if not isinstance(payload_data, dict):
-      logging.warning(f"search_results dict 타입 반환 안됨: {type(payload_data)}")
-      continue
+  for i in range(SEARCH_COUNT):
+    clause_payload = search_results.points[i].payload if i < len(
+      search_results.points) else {}
+    term_payload = legal_term_results.points[i].payload if i < len(
+      legal_term_results.points) else {}
 
-    clause_results.append(
+    merged_results.append(
         SearchResult(
-            proof_text=payload_data.get("proof_text", ""),
-            incorrect_text=payload_data.get("incorrect_text", ""),
-            corrected_text=payload_data.get("corrected_text", "")
-        ))
+            proof_text=clause_payload.get("proof_text", ""),
+            incorrect_text=clause_payload.get("incorrect_text", ""),
+            corrected_text=clause_payload.get("corrected_text", ""),
+            term=term_payload.get("term", ""),
+            meaning_difference=term_payload.get("meaning_difference", ""),
+            definition=term_payload.get("definition", ""),
+            keywords=term_payload.get("keywords", "")
+        )
+    )
 
-  return clause_results
+  return merged_results
 
 
 async def generate_clause_correction(prompt_client: AsyncAzureOpenAI,
-    article_content: str, clause_results: List[SearchResult]) -> Optional[
+    article_content: str, search_results: List[SearchResult]) -> Optional[
   dict[str, Any]]:
   for attempt in range(1, MAX_RETRIES + 1):
     try:
       result = await asyncio.wait_for(
           prompt_service.correct_contract(
               prompt_client,
-              clause_content=article_content,
-              proof_text=[item.proof_text for item in clause_results],  # 기준 문서들
-              incorrect_text=[item.incorrect_text for item in clause_results],
-              corrected_text=[item.corrected_text for item in clause_results]
+              search_results,
+              clause_content=article_content.replace("\n", " ")
           ),
           timeout=LLM_TIMEOUT
       )
-      if isinstance(result, dict) and LLM_REQUIRED_KEYS.issubset(result.keys()):
+      if is_correct_response_format(result):
         return result
-      logging.warning(f"[generate_clause_correction]: llm 응답 필수 키 누락됨")
+      logging.warning(
+          f"[generate_clause_correction]: llm 응답 필수 키 누락 / str형 반환 안됨")
 
     except Exception as e:
       if isinstance(e, asyncio.TimeoutError):
@@ -199,7 +213,15 @@ async def generate_clause_correction(prompt_client: AsyncAzureOpenAI,
   return None
 
 
-async def set_result_data(corrected_result: Optional[
+def is_correct_response_format(result: dict[str, str]) -> bool:
+  return (
+      isinstance(result, dict)
+      and LLM_REQUIRED_KEYS.issubset(result.keys())
+      and all(isinstance(result[key], str) for key in LLM_REQUIRED_KEYS)
+  )
+
+
+def set_result_data(corrected_result: Optional[
   dict[str, Any]], rag_result: RagResult, positions: List[List]):
   rag_result.incorrect_text = (
     rag_result.incorrect_text.split(ARTICLE_CLAUSE_SEPARATOR, 1)[-1]
@@ -209,7 +231,8 @@ async def set_result_data(corrected_result: Optional[
   )
 
   value = corrected_result["correctedText"]
-  rag_result.corrected_text = " ".join(value) if isinstance(value, list) else value
+  rag_result.corrected_text = " ".join(value) if isinstance(value,
+                                                            list) else value
   value = corrected_result["proofText"]
   rag_result.proof_text = " ".join(value) if isinstance(value, list) else value
 

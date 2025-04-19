@@ -17,7 +17,8 @@ from app.schemas.success_response import SuccessResponse
 from app.services.common.ingestion_pipeline import preprocess_data, \
   chunk_standard_texts, normalize_spacing
 from app.services.standard.vector_delete import delete_by_standard_id
-from app.services.standard.vector_store import vectorize_and_save
+from app.services.standard.vector_store.vector_processor import \
+  vectorize_and_save
 
 standards = Blueprint('standards', __name__, url_prefix="/flask/standards")
 
@@ -34,8 +35,7 @@ def process_standards_pdf_from_s3():
     raise CommonException(ErrorCode.FIELD_MISSING)
 
   documents, _ = preprocess_data(document_request)
-  extracted_text = "\n".join([doc.page_content for doc in documents])
-  chunks = chunk_standard_texts(extracted_text)
+  chunks = chunk_standard_texts(documents, document_request.categoryName)
 
   # 5️⃣ 벡터화 + Qdrant 저장
   start_time = time.time()

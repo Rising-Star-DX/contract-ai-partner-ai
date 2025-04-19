@@ -1,16 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 
 @dataclass
 class ClauseChunk:
-  clause_number: str
-  clause_content: str
+  clause_number: str = ''
+  clause_content: str = ''
 
 @dataclass
 class ArticleChunk:
-  article_title: str
-  clauses: List[ClauseChunk]
+  article_title: str = ''
+  clauses: List[ClauseChunk] = field(default_factory=list)
 
 @dataclass
 class DocumentChunk:
