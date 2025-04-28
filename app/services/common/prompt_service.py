@@ -141,7 +141,7 @@ class PromptService:
     return clean_markdown_block(response_text)
 
   async def correct_contract(self, prompt_client: AsyncAzureOpenAI,
-      clause_content: str, search_results: List[SearchResult]) -> Optional[
+      clause_content: str) -> Optional[
     dict[str, Any]]:
 
     clause_content = clause_content.replace("\n", " ")
@@ -149,76 +149,29 @@ class PromptService:
     clause_content = clause_content.replace("!!!", " ")
 
     input_data = {
-      "clause_content": clause_content,
-      "proof_text": [item.proof_text for item in search_results],
-      "incorrect_text": [item.incorrect_text for item in search_results],
-      "corrected_text": [item.corrected_text for item in search_results],
-      "term": [x for item in search_results for x in[item.term] + item.keywords],
-      "meaning_difference": [item.meaning_difference for item in search_results],
-      "definition": [item.definition for item in search_results],
+      "clause_content": clause_content
     }
 
     response = await prompt_client.chat.completions.create(
         model=self.deployment_name,
         messages=[
           {
-            "role": "developer",
-            "content":
-              f"""
-                너는 한국에서 계약서 및 법률 문서를 검토하는 최고의 변호사야.
-                계약서에서 법률 위반 가능성이 있는 부분을 정확히 찾아내고,
-                그 부분을 교정할 때 법적인 근거를 설명해야 해.
-                특히 계약서 내 용어 사용이 오해를 일으킬 수 있는 경우, 
-                관련 법률 용어의 정의와 해석 차이를 기준으로 다시 설명해 줘야 해.
-              """
-          },
-          {
             "role": "user",
             "content":
               f"""
             입력 데이터를 참고해서 계약서 문장에서 부당한 문구가 있는지 찾아 수정해주세요.
 
-            [특히 고려해야 할 사항]
-            - 계약서 문장이 **법적 요건에 맞지 않거나**, **근로자에게 일방적으로 불리한 조건**을 담고 있다면 반드시 교정이 필요합니다.
-            - 계약서 문장에 등장하는 특정 단어가 법률용어(`term`)와 같거나 유사할 경우, 해당 단어의 **정의(`definition`)를 기준**으로 문장이 잘못 쓰였는지 검토해 주세요.
-            - 비전문가와 전문가 사이에 **해석 차이의 여지가 있다면 (`meaning_difference`)**, 그 위험성을 `proofText`에 반드시 설명해 주세요.
-            - 문법적 오류보다는 **내용의 법적 타당성**에 집중해 주세요.
-            - `proofText`에는 어떤 입력 변수명도 그대로 포함시키지 마세요.
-            - 계약서 문장의 위배 확률이 높아 보인다면 `violation_score`를 높게 반환해 주세요.
-            - 2025년 시급은 10,030원 이상이여야만 합니다.
-    
-            [입력 데이터 설명]
-            - clause_content: 계약서 문장
-            - proof_text: 법률 문서의 문장 목록
-            - incorrect_text: 법률 위반할 가능성이 있는 예시 문장 
-            - corrected_text: 법률 위반 가능성이 있는 예시 문장을 올바르게 수정한 문장 목록
-            - term: 계약서 문장에서 등장하거나 유사한 법률 용어
-            - meaning_difference: 이 용어에 대해 비전문가와 전문가의 해석 차이가 발생할 수 있는 경우 설명
-            - definition: 해당 법률 용어의 사전적 또는 법적 정의
-
-            [violation_score 판단 기준 및 생성 형식]
-            - 반드시 "0.000"부터 "1.000" 사이의 **소수점 셋째 자리까지의 문자열(float 형식)**로 출력하세요.
-            - `0.750`, `0.500`과 같이 끝자리가 `0`인 고정된 패턴은 피하고 다양성 있는 float 값을 사용해 주세요.
-            - 소수점 셋째자리까지 0이 아닌 숫자를 넣어주세요
-            - 무작위가 아닌, 문장의 위반 가능성을 기반으로 신중하게 결정해 주세요.
-
+            
+            [입력 데이터]
+            {json.dumps(input_data, ensure_ascii=False, indent=2)}
+            
             [출력 형식]
             출력은 dict 형태이며, value 값은 반드시 문자열(string) 형태로 출력할 것:
             {{
               "correctedText": "계약서의 문장을 올바르게 교정한 문장",
               "proofText": "입력 데이터를 참조해 잘못된 포인트와 그 이유",
               "violation_score": "0.000 ~ 1.000 사이의 소수점 셋째 자리까지의 문자열"
-                                  
               "incorrectPart": clause_content에서 문제가 되는 부분 길이는 최대 단어 5개까지 똑같이 반환해주세요.
-                                     
-                                     아래 규칙을 지켜주세요
-                                     조사를 지우지 말고 완전한 문장을 반환하세요
-                                     clause_content 문장과 일치하지 않고 부분 내용이여야 합니다.
-                                     띄어쓰기, 온점, 반점, 괄호 등은 clause_content와 정확히 일치해야 합니다.
-            }}
-            
-            [입력 데이터]
-            {json.dumps(input_data, ensure_ascii=False, indent=2)}
           """
           }
         ],

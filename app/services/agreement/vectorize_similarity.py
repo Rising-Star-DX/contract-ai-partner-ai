@@ -25,7 +25,7 @@ from app.services.common.qdrant_utils import ensure_qdrant_collection
 
 SEARCH_COUNT = 3
 
-VIOLATION_THRESHOLD = 0.85
+VIOLATION_THRESHOLD = 0.0
 LLM_REQUIRED_KEYS = {"clause_content", "correctedText", "proofText",
                      "violation_score"}
 
@@ -34,8 +34,7 @@ LLM_REQUIRED_KEYS = {"clause_content", "correctedText", "proofText",
 async def vectorize_and_calculate_similarity(
     combined_chunks: List[RagResult], document_request: DocumentRequest,
     byte_type_pdf: fitz.Document) -> List[RagResult]:
-  qd_client = get_qdrant_client()
-  await ensure_qdrant_collection(qd_client, document_request.categoryName)
+
 
   embedding_inputs = await prepare_embedding_inputs(combined_chunks)
 
@@ -44,7 +43,7 @@ async def vectorize_and_calculate_similarity(
         embedding_client, embedding_inputs)
 
   tasks = [
-    process_clause(qd_client, chunk, embedding,
+    process_clause(chunk, embedding,
                    document_request.categoryName, byte_type_pdf)
     for chunk, embedding in zip(combined_chunks, embeddings)
   ]
@@ -70,19 +69,15 @@ async def prepare_embedding_inputs(chunks: List[RagResult]) -> List[str]:
   return inputs
 
 
-async def process_clause(qd_client: AsyncQdrantClient, rag_result: RagResult,
+async def process_clause(rag_result: RagResult,
     embedding: List[float], collection_name: str,
     byte_type_pdf: fitz.Document) -> ChunkProcessResult:
-  semaphore = asyncio.Semaphore(5)
-  search_results = await search_qdrant(semaphore, collection_name, embedding,
-                                       qd_client)
   parse_incorrect_text(rag_result)
 
   async with get_prompt_async_client() as prompt_client:
     corrected_result = await retry_llm_call(
         prompt_service.correct_contract,
         prompt_client, rag_result.incorrect_text.replace("\n", " "),
-        search_results,
         required_keys=LLM_REQUIRED_KEYS
     )
   if not corrected_result:
